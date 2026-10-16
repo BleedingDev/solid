@@ -125,7 +125,7 @@ describe("EFFECT_RELAY_TEAR", () => {
     expect(tears[0].severity).toBe("info");
     expect(tears[0].data!.copy).toBe(false);
     expect(tears[0].message).toContain(
-      'Nothing else writes "filtered" — if it is computed from what the effect reads'
+      'Nothing else writes "filtered". If "filtered" is computed from what the effect reads'
     );
     expect(console.warn).not.toHaveBeenCalled();
     for (const q of ["b", "c", "d", "e"]) {

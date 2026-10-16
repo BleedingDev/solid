@@ -480,9 +480,8 @@ repeatedly with at least three distinct compute outputs and no compute
 output ever wrote two different values. A relay keyed on a boolean
 (`createEffect(open, () => setFlipped(measure()))`) never escalates, and a
 boolean write is never taken as a copy: agreeing with `open` is one bit of
-coincidence. "The same input made effect … write different values" means
-the engine saw the write read outside the graph: the measuring cost, nothing
-to fix. Do not defer the write to a microtask to quiet it; that only hides
+coincidence. A relay whose same compute output ever wrote two different
+values reads outside the graph and never escalates. Do not defer the write to a microtask to quiet it; that only hides
 the cause chain.
 
 ### IMMUTABLE_UPDATE_IN_STORE

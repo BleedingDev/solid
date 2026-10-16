@@ -3696,8 +3696,15 @@ module.exports = [
     // 29,108 (+72 B; +210 B minified, 87,372 -> 87,582) — the observe scenario's
     // change (the slot's stamps, `lazy()`'s marks) less the engine's own
     // origin map, which now delegates to the slot.
-    limit: "29.19 KB",
-    capMinified: 87582,
+    // Relay tears from measuring effects (#4121, 2026-10-16): 29.19 ->
+    // 29.36 KB, measured locally at 29,346 B against `next` @ dbc5d000's
+    // 29,180 (+166 B; +202 B minified, 87,582 -> 87,784) — the engine only:
+    // EFFECT_RELAY_TEAR keeps up to three compute-output/written-value pairs
+    // per relay so a measuring effect never escalates, and a boolean write is
+    // never a copy. Golfed first (the messages share one measuring fork). Cap
+    // at measured + 10 B rounded up to 0.01 KB.
+    limit: "29.36 KB",
+    capMinified: 87784,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
