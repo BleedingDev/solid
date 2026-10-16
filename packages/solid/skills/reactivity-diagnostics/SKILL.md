@@ -462,17 +462,28 @@ is proven from the cause chain; the rest of the message is confidence:
 - "The written value is `a` itself" (`data.passthrough`) — the prop-to-state
   port. Repair: read `a` where `S` was read; a memo only if a stable
   derivation is genuinely needed.
-- "Nothing else writes `S`" (`data.soleWriter`) — derived state without the
-  identity proof; same memo repair.
+- "Nothing else writes `S`" (`data.soleWriter`, `copy` false) — derived
+  state if the value is computed from what the effect reads: same memo
+  repair. If the effect measures (layout, `Date.now()`, a ref), the tear is
+  the cost of measuring.
 - "`S` has other writers — editable state reset from a source" (`copy` true,
   `soleWriter` false; `info` until it repeats) — the controlled-input shape.
   If resetting local editable state when the source changes is the intent,
   the tear is its cost; if `S` only ever mirrors the source, drop the copy.
-- Neither (`info` until it repeats) — the written value is not the compute
-  output and the signal has other writers. If the effect reads something
-  outside the graph (layout, `Date.now()`, a ref), the tear is the cost of
-  measuring and the finding is a fact to accept; if the value is computed
-  from what the effect reads, it is still a memo.
+- Neither — the written value is not the compute output and the signal has
+  other writers. If the effect reads something outside the graph, the tear
+  is the cost of measuring and the finding is a fact to accept; if the value
+  is computed from what the effect reads, it is still a memo.
+
+A tear without the copy proof stays `info` until the relay has torn
+repeatedly with at least three distinct compute outputs and no compute
+output ever wrote two different values. A relay keyed on a boolean
+(`createEffect(open, () => setFlipped(measure()))`) never escalates, and a
+boolean write is never taken as a copy: agreeing with `open` is one bit of
+coincidence. "The same input made effect … write different values" means
+the engine saw the write read outside the graph: the measuring cost, nothing
+to fix. Do not defer the write to a microtask to quiet it; that only hides
+the cause chain.
 
 ### IMMUTABLE_UPDATE_IN_STORE
 

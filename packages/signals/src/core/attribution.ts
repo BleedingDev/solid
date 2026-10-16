@@ -2002,8 +2002,16 @@ function checkEffectCycle(el: Computed<any>, causes: ChangeRecord[]): void {
 interface RelayState {
   count: number;
   warned: boolean;
+  /** Primitive compute outputs seen, each with the value the relay wrote for it. */
+  inputs: Map<unknown, unknown>;
+  /** Object compute outputs seen (identity is the only evidence, so count them). */
+  objectInputs: number;
+  /** One compute output was seen writing two different values: the write reads outside the graph. */
+  external: boolean;
 }
 const RELAY_WARN_AT = 3;
+/** The relay's compute output and written value for each effect-origin root write. */
+const relayPairs = new WeakMap<ChangeRecord, [input: unknown, written: unknown]>();
 const relays = new Map<string, RelayState>();
 const copyWrites = new WeakSet<ChangeRecord>();
 const copyReported = new WeakSet<object>();
@@ -2022,8 +2030,17 @@ function trackEffectWrite(node: Signal<any> | Computed<any>, record: ChangeRecor
     origin !== undefined && origin.kind === "effect" ? effectFrames.get(origin) : undefined;
   const writer = info === undefined ? 0 : devId(info.node);
   recordNodes.set(record, node);
+  if (info !== undefined) relayPairs.set(record, [info.node._value, value]);
   n._devSoleWriter = n._devSoleWriter === undefined || n._devSoleWriter === writer ? writer : null;
-  if (info !== undefined && value !== undefined && value === info.node._value) {
+  // A boolean agreeing with a boolean compute output is one bit of
+  // coincidence (`createEffect(open, () => setFlipped(measure()))`), not
+  // evidence of a copy.
+  if (
+    info !== undefined &&
+    value !== undefined &&
+    typeof value !== "boolean" &&
+    value === info.node._value
+  ) {
     copyWrites.add(record);
     n._devCopyRuns = n._devCopyFrom === writer ? (n._devCopyRuns ?? 0) + 1 : 1;
     n._devCopyFrom = writer;
@@ -2119,8 +2136,25 @@ function checkRelayTear(
   if (shared === undefined || relay === undefined || write === undefined) return;
   const key = `${devId(relay.node)}:${write.name}`;
   let state = relays.get(key);
-  if (state === undefined) relays.set(key, (state = { count: 0, warned: false }));
+  if (state === undefined)
+    relays.set(
+      key,
+      (state = { count: 0, warned: false, inputs: new Map(), objectInputs: 0, external: false })
+    );
   state.count++;
+  // Escalation needs evidence the write is a function of what the relay
+  // tracks: distinct inputs, and no input that ever wrote two different
+  // values (that write reads layout, time, a ref — the cost of measuring).
+  const pair = relayPairs.get(write);
+  if (pair !== undefined) {
+    const [input, written] = pair;
+    if (input !== null && (typeof input === "object" || typeof input === "function"))
+      state.objectInputs++;
+    else if (!state.inputs.has(input)) {
+      if (state.inputs.size < RELAY_WARN_AT) state.inputs.set(input, written);
+    } else if (state.inputs.get(input) !== written) state.external = true;
+  }
+  const functional = !state.external && state.inputs.size + state.objectInputs >= RELAY_WARN_AT;
   const copy = copyWrites.has(write);
   const target = recordNodes.get(write) as AttributedNode | undefined;
   const soleWriter = target !== undefined && target._devSoleWriter === devId(relay.node);
@@ -2129,7 +2163,7 @@ function checkRelayTear(
   // "reset editable state from a source" shape — the tear is real, but a memo
   // is not the answer, so it stays advisory like any other non-derivable tear.
   const derivable = copy && soleWriter;
-  const severity = derivable || state.count >= RELAY_WARN_AT ? "warn" : "info";
+  const severity = derivable || (functional && state.count >= RELAY_WARN_AT) ? "warn" : "info";
   // First sighting always reports (advisory); afterwards only the escalation.
   if (state.count > 1 && (severity !== "warn" || state.warned)) return;
   // One verdict per derivable signal: the copy report (checkCopyEffect) and
@@ -2148,12 +2182,17 @@ function checkRelayTear(
         `writers — editable state reset from a source. If the reset is the intent, the tear ` +
         `is its cost; if "${write.name}" only ever mirrors the source, drop the local copy ` +
         `and read the source.`
-      : soleWriter
-        ? `Nothing else writes "${write.name}" — it is derived state: make it a memo over what ` +
-          `the effect reads and every reader gets it in the same flush.`
-        : `If "${write.name}" is computed from what the effect reads, make it a memo so readers ` +
-          `get it in the same flush; if the write reads something outside the graph (layout, ` +
-          `time), the tear is the cost of measuring.`;
+      : state.external
+        ? `The same input made effect "${relayName}" write different values, so the write ` +
+          `reads something outside the graph (layout, time, a ref): the tear is the cost of ` +
+          `measuring.`
+        : soleWriter
+          ? `Nothing else writes "${write.name}" — if it is computed from what the effect reads, ` +
+            `make it a memo so every reader gets it in the same flush; if the write reads ` +
+            `something outside the graph (layout, time), the tear is the cost of measuring.`
+          : `If "${write.name}" is computed from what the effect reads, make it a memo so readers ` +
+            `get it in the same flush; if the write reads something outside the graph (layout, ` +
+            `time), the tear is the cost of measuring.`;
   const message =
     `[EFFECT_RELAY_TEAR] ${victimKind} "${nodeName(victim)}" ran twice for one write of ` +
     `"${shared.name}": once in the flush where "${shared.name}" changed, and again after ` +
