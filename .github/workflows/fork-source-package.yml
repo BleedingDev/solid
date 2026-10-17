@@ -1,0 +1,52 @@
+name: Fork Source Package
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-source-package-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  accept-source-package:
+    if: github.repository == 'BleedingDev/solid'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Check archive acceptance regressions
+        run: node --test scripts/accept-source-package.test.mjs
+      - name: Install the native dependency graph
+        run: pnpm install --frozen-lockfile
+      - name: Build all native packages and declarations
+        run: |
+          pnpm run build
+          pnpm run types
+      - name: Run all native tests and type tests
+        run: pnpm run test
+      - name: Pack and accept the compiled native package
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/solid-source-package"
+          pnpm --dir packages/solid pack --pack-destination "$RUNNER_TEMP/solid-source-package"
+          node scripts/accept-source-package.mjs "$RUNNER_TEMP/solid-source-package"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: solid-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/solid-source-package/
+          if-no-files-found: error
+          retention-days: 14
