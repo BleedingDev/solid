@@ -279,7 +279,6 @@ export async function publishSourcePackage(runId, commands = {}) {
       );
       release.assets = assets;
       if (!release.draft) {
-        assert.equal(release.immutable, true, "Published release must be immutable");
         assert.equal(assets.length, files.length, "Published release is incomplete");
       }
       for (const asset of assets) {
@@ -306,7 +305,12 @@ export async function publishSourcePackage(runId, commands = {}) {
           "Never replace existing release bytes"
         );
       }
-      if (!release.draft) return `https://github.com/${repository}/releases/tag/${tag}`;
+      if (!release.draft) {
+        if (release.immutable === true)
+          return `https://github.com/${repository}/releases/tag/${tag}`;
+        await gh("release", "edit", tag, "--repo", repository, "--draft=true");
+        assert.fail("Recovered mutable release to draft; enable immutability before retrying");
+      }
     } else {
       await gh(
         "release",

@@ -387,6 +387,41 @@ test("rejects mutable releases, foreign tags and unexpected draft assets", async
   await assert.rejects(publishSourcePackage("42", f.commands), /Unexpected release asset/);
 });
 
+test("recovers a mutable publication interrupted before rollback without changing its bytes", async context => {
+  const f = fixture(context);
+  f.state.mutable = true;
+  await assert.rejects(
+    publishSourcePackage("42", {
+      ...f.commands,
+      gh: async (...args) => {
+        const result = await f.commands.gh(...args);
+        if (args[0] === "release" && args[1] === "edit" && args.includes("--draft=false"))
+          throw new Error("finalize response lost");
+        return result;
+      }
+    }),
+    /finalize response lost/
+  );
+  assert.equal(f.state.release.draft, false);
+  assert.equal(f.state.release.immutable, false);
+  const original = f.state.assets.get("source-package.json");
+  f.state.assets.set("source-package.json", Buffer.from("foreign bytes"));
+  await assert.rejects(
+    publishSourcePackage("42", f.commands),
+    /Never replace existing release bytes/
+  );
+  assert.equal(f.state.edits, 1, "Never demote a release with unverified bytes");
+  f.state.assets.set("source-package.json", original);
+  await assert.rejects(publishSourcePackage("42", f.commands), /Recovered mutable release/);
+  assert.equal(f.state.release.draft, true);
+  f.state.mutable = false;
+  await publishSourcePackage("42", f.commands);
+  assert.equal(f.state.release.immutable, true);
+  assert.equal(f.state.uploads, 2, "Recovery reuses the exact accepted uploads");
+  assert.equal(f.state.creates, 1);
+  assert.deepEqual(readdirSync(f.temporaryRoot), []);
+});
+
 test("cleans owned partial downloads on failure or signal and restores signal listeners", async context => {
   const f = fixture(context);
   const listeners = process.listenerCount("SIGTERM");
