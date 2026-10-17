@@ -261,6 +261,8 @@ function fixture(context) {
       assert(!state.assets.has(name), "Never overwrite an asset");
       state.assets.set(name, readFileSync(args[3]));
       state.uploads++;
+      if (state.injectDraftAsset)
+        state.assets.set("foreign-file", Buffer.from("concurrent upload"));
     } else if (args[1] === "download") {
       const name = args[args.indexOf("--pattern") + 1];
       writeFileSync(join(args[args.indexOf("--dir") + 1], name), state.assets.get(name));
@@ -427,6 +429,15 @@ test("replaces only incomplete draft uploads before resuming", async context => 
   assert.equal(f.state.release.immutable, true);
   assert.equal(f.state.incomplete.size, 0);
   assert.deepEqual(f.state.assets.get(name), readFileSync(join(f.accepted, name)));
+});
+
+test("rejects a concurrent foreign asset before freezing a draft", async context => {
+  const f = fixture(context);
+  f.state.injectDraftAsset = true;
+  await assert.rejects(publishSourcePackage("42", f.commands), /Draft release contains unexpected/);
+  assert.equal(f.state.release.draft, true);
+  assert.equal(f.state.release.immutable, false);
+  assert.equal(f.state.edits, 0);
 });
 
 test("rejects a concurrent foreign asset in the finalized release", async context => {

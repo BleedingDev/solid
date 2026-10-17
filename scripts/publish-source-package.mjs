@@ -338,6 +338,19 @@ export async function publishSourcePackage(runId, commands = {}) {
       if (!release.assets.some(asset => asset.name === file))
         await gh("release", "upload", tag, join(accepted, file), "--repo", repository);
     }
+    const pending = await api(`repos/${repository}/releases/${release.id}`);
+    assert.equal(pending.draft, true, "Release must remain a draft until finalization");
+    assert.equal(pending.target_commitish, sha);
+    assert.equal(pending.tag_name, tag);
+    assert.deepEqual(
+      pending.assets.map(asset => asset.name).sort(),
+      [...files].sort(),
+      "Draft release contains unexpected or missing assets"
+    );
+    assert(
+      pending.assets.every(asset => asset.state === "uploaded"),
+      "Draft release contains an incomplete asset"
+    );
     await gh("release", "edit", tag, "--repo", repository, "--draft=false", "--latest=false");
     const finalized = await api(`repos/${repository}/releases/${release.id}`);
     assert.equal(finalized.draft, false);
