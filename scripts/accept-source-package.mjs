@@ -68,15 +68,20 @@ export function validateCompiledPackage({
   assert.equal(manifest.name, "solid-js");
   assert.deepEqual(manifest, sourceManifest, "Package manifest must match the source commit");
   for (const path of expectedFiles) {
+    // pnpm serializes manifests while packing, including removing the final newline.
+    // Every manifest field must remain equal; compiled outputs keep exact byte checks.
+    const compare = path.endsWith("package.json")
+      ? bytes => JSON.parse(bytes.toString())
+      : bytes => Buffer.from(bytes);
     assert.deepEqual(
-      Buffer.from(readEntry(`package/${path}`)),
-      Buffer.from(readBuilt(path)),
+      compare(readEntry(`package/${path}`)),
+      compare(readBuilt(path)),
       `Archive differs from the native build: ${path}`
     );
     if (path.endsWith("package.json") || path.endsWith("README.md") || path === "jsx-runtime.d.ts")
       assert.deepEqual(
-        Buffer.from(readEntry(`package/${path}`)),
-        Buffer.from(readSource(path)),
+        compare(readEntry(`package/${path}`)),
+        compare(readSource(path)),
         `Packaged source differs from the accepted commit: ${path}`
       );
   }

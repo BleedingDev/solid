@@ -67,6 +67,32 @@ test("accepts complete native compiled outputs and public SSR surfaces", () => {
   });
 });
 
+test("accepts pack manifest formatting while rejecting changed manifest fields", () => {
+  const f = fixture();
+  f.built.set("package.json", `${JSON.stringify(f.manifest, null, 2)}\n`);
+  f.source.set("package.json", f.built.get("package.json"));
+  validateCompiledPackage(f.options);
+
+  f.archive.set(
+    "package/package.json",
+    JSON.stringify({
+      ...f.manifest,
+      dependencies: { ...f.manifest.dependencies, seroval: "~0.0.1" }
+    })
+  );
+  assert.throws(() => validateCompiledPackage(f.options), /manifest must match/);
+
+  const nested = fixture();
+  nested.built.set("web/package.json", '{"type":"module"}\n');
+  nested.source.set("web/package.json", '{"type":"module"}\n');
+  nested.archive.set("package/web/package.json", '{"type":"module"}');
+  nested.options.expectedFiles.push("web/package.json");
+  nested.options.entries.push("package/web/package.json");
+  validateCompiledPackage(nested.options);
+  nested.archive.set("package/web/package.json", '{"type":"commonjs"}');
+  assert.throws(() => validateCompiledPackage(nested.options), /differs from the native build/);
+});
+
 test("rejects altered, missing and unexpected archive files", () => {
   const altered = fixture();
   altered.archive.set("package/web/dist/server.js", "post-build patch");
