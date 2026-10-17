@@ -29,7 +29,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - name: Check archive acceptance regressions
-        run: node --test scripts/accept-source-package.test.mjs
+        run: node --test scripts/*source-package.test.mjs
       - name: Install the native dependency graph
         run: pnpm install --frozen-lockfile
       - name: Build all native packages and declarations
