@@ -247,12 +247,19 @@ type CSPNonce = string | { script: string | false; style: string | false };
 export function generateHydrationScript(_options?: {
   eventNames?: string[];
   nonce?: CSPNonce;
+  /** Allowlist attribute; defaults to data-hydration-events. Remove declarations when their policy ends. */
+  eventReplayAttribute?: string;
 }): string {
   return "";
 }
 
 /** Client stub — valid JSX component, renders nothing. */
-export function HydrationScript(_props?: { nonce?: CSPNonce; eventNames?: string[] }): null {
+export function HydrationScript(_props?: {
+  nonce?: CSPNonce;
+  eventNames?: string[];
+  /** Allowlist attribute; defaults to data-hydration-events. Remove declarations when their policy ends. */
+  eventReplayAttribute?: string;
+}): null {
   return null;
 }
 

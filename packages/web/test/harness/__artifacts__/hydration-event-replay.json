@@ -1,0 +1,20 @@
+{
+  "bootstrap": "<script>window._$HY||(e=>{let t=e=>e&&(e.hasAttribute&&e.hasAttribute(\"_hk\")?e:t(e.assignedSlot||e.host&&e.host.nodeType&&e.host||e.parentNode));let a=o=>{let d=false,p=o.composedPath?o.composedPath():[],i=0,n=p.length?p[0]:o.target;for(;n;n=p.length?p[++i]:n.assignedSlot||n.parentNode||n.host){let v=n.getAttribute&&n.getAttribute(\"data-hydration-events\");if(typeof v===\"string\"){d=true;if(v.split(/\\s+/).includes(o.type))return true}}return !d};[\"click\",\"dblclick\"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events||!a(o))return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),fe(){}});</script><!--xs-->",
+  "cases": [
+    {
+      "shell": "<main _hk=0><section data-hydration-events=\"dblclick\"><button _hk=10>deferred interaction</button></section></main>",
+      "chunks": [],
+      "rest": ""
+    },
+    {
+      "shell": "<main _hk=0><section data-hydration-events=\"\"><button _hk=10>deferred interaction</button></section></main>",
+      "chunks": [],
+      "rest": ""
+    },
+    {
+      "shell": "<main _hk=0><section><button _hk=10>deferred interaction</button></section></main>",
+      "chunks": [],
+      "rest": ""
+    }
+  ]
+}

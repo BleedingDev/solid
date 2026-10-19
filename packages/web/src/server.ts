@@ -3491,18 +3491,27 @@ export function renderToStream(code, options = {}) {
     }
   };
 }
-export function HydrationScript(props: { nonce?: CSPNonce; eventNames?: string[] }): JSX.Element;
+export function HydrationScript(props: {
+  nonce?: CSPNonce;
+  eventNames?: string[];
+  /**
+   * Whitespace-separated event allowlists (default attribute: data-hydration-events).
+   * Any matching ancestor permits replay; empty declarations decline all events.
+   * No declarations preserve normal replay. Remove a declaration when its policy ends.
+   */
+  eventReplayAttribute?: string;
+}): JSX.Element;
 
 // components
 export function HydrationScript(props) {
   // The render owns its bootstrap, so its shell ends with the marker and the
   // bootstrap declares the ledger hydrate() parks on (#3971).
   if (sharedConfig.context) sharedConfig.context.bootstrap = true;
-  const { eventNames, nonce } = {
+  const { eventNames, eventReplayAttribute, nonce } = {
     nonce: sharedConfig.context && sharedConfig.context.nonce,
     ...props
   };
-  return ssr(hydrationBootstrap(eventNames, scriptNonce(nonce), true));
+  return ssr(hydrationBootstrap(eventNames, scriptNonce(nonce), true, eventReplayAttribute));
 }
 export function ssrGroup<T extends () => any[]>(fn: T, n: number): T;
 
@@ -5887,6 +5896,12 @@ export function applyRef(r, element) {
 export function generateHydrationScript(options?: {
   nonce?: CSPNonce;
   eventNames?: string[];
+  /**
+   * Whitespace-separated event allowlists (default attribute: data-hydration-events).
+   * Any matching ancestor permits replay; empty declarations decline all events.
+   * No declarations preserve normal replay. Remove a declaration when its policy ends.
+   */
+  eventReplayAttribute?: string;
 }): string;
 
 // `r` owns every promise the payload files under it the moment it lands
@@ -5894,8 +5909,8 @@ export function generateHydrationScript(options?: {
 // its fallback, or keyed outside any boundary — would otherwise raise
 // `unhandledrejection` from the inline script alone, and a handler attached
 // later only revokes the report. A consumer still meets the rejection.
-export function generateHydrationScript({ eventNames, nonce } = {}) {
-  return hydrationBootstrap(eventNames, scriptNonce(nonce), false);
+export function generateHydrationScript({ eventNames, eventReplayAttribute, nonce } = {}) {
+  return hydrationBootstrap(eventNames, scriptNonce(nonce), false, eventReplayAttribute);
 }
 
 // `ledger` (#3971): only an in-render <HydrationScript /> declares `_$HY.s`,
@@ -5903,12 +5918,20 @@ export function generateHydrationScript({ eventNames, nonce } = {}) {
 // host-placed bootstrap (generateHydrationScript: hand-built documents,
 // islands hosts like Astro, which await each island's children themselves)
 // declares none, so hydrate() never parks under it.
-function hydrationBootstrap(eventNames = ["click", "input"], nonce, ledger) {
+function hydrationBootstrap(
+  eventNames = ["click", "input"],
+  nonce,
+  ledger,
+  eventReplayAttribute = "data-hydration-events"
+) {
+  // Declined events still propagate normally. An interested outer boundary
+  // may permit replay even when the nearest declared boundary does not.
+  const attribute = JSON.stringify(eventReplayAttribute).replace(/</g, "\\u003c");
   return `<script${
     nonce ? ` nonce="${escape(String(nonce), true)}"` : ""
-  }>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute("_hk")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));["${eventNames.join(
+  }>window._$HY||(e=>{let t=e=>e&&(e.hasAttribute&&e.hasAttribute("_hk")?e:t(e.assignedSlot||e.host&&e.host.nodeType&&e.host||e.parentNode));let a=o=>{let d=false,p=o.composedPath?o.composedPath():[],i=0,n=p.length?p[0]:o.target;for(;n;n=p.length?p[++i]:n.assignedSlot||n.parentNode||n.host){let v=n.getAttribute&&n.getAttribute(${attribute});if(typeof v==="string"){d=true;if(v.split(/\\s+/).includes(o.type))return true}}return !d};["${eventNames.join(
     '","'
-  )}"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),${ledger ? "s:{}," : ""}fe(){}});</script><!--xs-->`;
+  )}"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events||!a(o))return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),${ledger ? "s:{}," : ""}fe(){}});</script><!--xs-->`;
 }
 
 function queue(fn) {

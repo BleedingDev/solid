@@ -16,6 +16,31 @@ import { DeferredHydration, Dynamic, Errored, Loading, type JSX } from "@solidjs
 
 const Label = createContext("missing context");
 
+export function eventReplayApp(options: {
+  ready: Accessor<boolean>;
+  events?: string;
+  parentClicked?: () => void;
+  childClicked?: () => void;
+  childDoubleClicked?: () => void;
+}) {
+  return function App() {
+    return (
+      <main onClick={() => options.parentClicked?.()}>
+        <section data-hydration-events={options.events}>
+          <DeferredHydration when={options.ready()}>
+            <button
+              onClick={() => options.childClicked?.()}
+              onDblClick={() => options.childDoubleClicked?.()}
+            >
+              deferred interaction
+            </button>
+          </DeferredHydration>
+        </section>
+      </main>
+    );
+  };
+}
+
 export function deferredApp(options: {
   ready: Accessor<boolean>;
   async?: boolean;
