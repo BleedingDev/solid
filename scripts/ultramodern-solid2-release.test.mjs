@@ -1,11 +1,43 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { verifyRun, verifyReceipt, version, packages } from "./ultramodern-solid2-release.mjs";
 
 import { verifySourceExclusion } from "./ultramodern-solid2-policy.mjs";
 
 const source = "a".repeat(40);
+test("missing settings credential stops before any release API request", () => {
+  const script = new URL("./ultramodern-solid2-release.mjs", import.meta.url);
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `globalThis.fetch = async () => {
+        console.error("UNEXPECTED_RELEASE_REQUEST");
+        throw new Error("Release API must not be called without verification credentials");
+      };
+      process.argv[1] = ${JSON.stringify(fileURLToPath(script))};
+      process.argv[2] = "123";
+      await import(${JSON.stringify(script.href)});`
+    ],
+    {
+      encoding: "utf8",
+      env: {
+        GITHUB_REPOSITORY: "BleedingDev/solid",
+        GITHUB_REF: "refs/heads/solid2-rc15",
+        GITHUB_SHA: source,
+        GH_TOKEN: "guard-test-token"
+      }
+    }
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /SOLID2_RELEASE_SETTINGS_TOKEN is required/);
+  assert.doesNotMatch(result.stderr, /UNEXPECTED_RELEASE_REQUEST/);
+  assert.equal(result.stdout, "");
+});
 const run = {
   id: 123,
   run_attempt: 2,

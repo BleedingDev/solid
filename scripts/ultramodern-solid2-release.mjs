@@ -71,12 +71,11 @@ async function main() {
     assert(response.ok, `GitHub ${method} ${route} failed with ${response.status}`);
     return response.json();
   }
-  // GITHUB_TOKEN cannot read Administration settings. When an authorized
-  // settings credential is available, verify the live setting before mutation.
-  // Otherwise the operator checks it with gh before dispatching this workflow.
+  // GITHUB_TOKEN cannot read Administration settings. Require an authorized
+  // settings credential to verify the live setting before either mutation.
   async function verifyImmutabilitySetting() {
     const settingsToken = process.env.SOLID2_RELEASE_SETTINGS_TOKEN;
-    if (!settingsToken) return;
+    assert(settingsToken, "SOLID2_RELEASE_SETTINGS_TOKEN is required");
     const response = await fetch(`https://api.github.com/repos/${repository}/immutable-releases`, {
       headers: {
         Authorization: `Bearer ${settingsToken}`,
