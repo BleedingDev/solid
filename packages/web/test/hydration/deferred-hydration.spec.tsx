@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSignal, flush, onHydrationEnd } from "solid-js";
 import { hydrate, render } from "@solidjs/web";
-import { deferredApp } from "../harness/deferred-hydration.jsx";
+import { deferredApp, deferredModuleApp } from "../harness/deferred-hydration.jsx";
 
 const artifact = JSON.parse(
   readFileSync(
@@ -19,6 +19,9 @@ const artifact = JSON.parse(
   shell: string;
   other: { shell: string };
   streamed: { shell: string; chunks: string[] };
+  module: { shell: string };
+  handledModule: { shell: string };
+  nestedModule: { shell: string };
 };
 let container: HTMLDivElement;
 let dispose: (() => void) | undefined;
@@ -288,4 +291,270 @@ test("an error during a late claim reaches its native boundary and releases hydr
   expect(caught).toBe(error);
   expect(container.textContent).toBe("activation failed");
   expect(ended).toBe(1);
+});
+
+test("claims retained SSR after a client-only module settles beyond gate activation", async () => {
+  applyChunk(container, artifact.module.shell);
+  const button = container.querySelector("button")!;
+  const sibling = container.querySelector("aside")!;
+  const [ready, setReady] = createSignal(false);
+  let resolveModule!: () => void;
+  const module = new Promise<void>(resolve => {
+    resolveModule = resolve;
+  });
+  let entered = 0;
+  let cleaned = 0;
+  let clicks = 0;
+  const App = deferredModuleApp({
+    ready,
+    module,
+    entered: () => entered++,
+    disposed: () => cleaned++,
+    clicked: () => clicks++
+  });
+  dispose = hydrate(() => <App />, container);
+  await settle();
+  expect(entered).toBe(0);
+  expect(container.querySelector("button")).toBe(button);
+
+  setReady(true);
+  await settle();
+  expect(entered).toBe(0);
+  expect(button.isConnected).toBe(true);
+  expect(container.querySelector("aside")).toBe(sibling);
+
+  resolveModule();
+  await settle();
+  await settle();
+  expect(entered).toBe(1);
+  expect(container.querySelectorAll("button")).toHaveLength(1);
+  expect(container.querySelector("button")).toBe(button);
+  expect(container.querySelector("aside")).toBe(sibling);
+  button.click();
+  expect(clicks).toBe(1);
+  dispose();
+  dispose = undefined;
+  expect(cleaned).toBe(1);
+});
+
+test("disposing a pending client-only module releases hydration and prevents a late claim", async () => {
+  applyChunk(container, artifact.module.shell);
+  const button = container.querySelector("button")!;
+  const [ready, setReady] = createSignal(false);
+  let resolveModule!: () => void;
+  const module = new Promise<void>(resolve => {
+    resolveModule = resolve;
+  });
+  let entered = 0;
+  let moduleCleaned = 0;
+  let ended = 0;
+  const App = deferredModuleApp({
+    ready,
+    module,
+    entered: () => entered++,
+    moduleDisposed: () => moduleCleaned++
+  });
+  dispose = hydrate(() => <App />, container);
+  onHydrationEnd(() => ended++);
+  setReady(true);
+  await settle();
+  expect(button.isConnected).toBe(true);
+  expect(entered).toBe(0);
+  expect(ended).toBe(0);
+  dispose();
+  dispose = undefined;
+  await settle();
+  expect(moduleCleaned).toBe(1);
+  expect(ended).toBe(1);
+  const remainingNodes = Array.from(container.childNodes);
+  resolveModule();
+  await settle();
+  await settle();
+  expect(entered).toBe(0);
+  expect(moduleCleaned).toBe(1);
+  expect(ended).toBe(1);
+  expect(Array.from(container.childNodes)).toEqual(remainingNodes);
+});
+
+test("a pending module rejection reaches Errored without blocking the following hydration sibling", async () => {
+  applyChunk(container, artifact.module.shell);
+  const button = container.querySelector("button")!;
+  const sibling = container.querySelector("aside")!;
+  const [ready, setReady] = createSignal(false);
+  let rejectModule!: (error: unknown) => void;
+  const module = new Promise<void>((_, reject) => {
+    rejectModule = reject;
+  });
+  const failure = new Error("client module failed");
+  let caught: unknown;
+  let entered = 0;
+  let moduleCleaned = 0;
+  let clicks = 0;
+  let ended = 0;
+  const App = deferredModuleApp({
+    ready,
+    module,
+    entered: () => entered++,
+    moduleDisposed: () => moduleCleaned++,
+    failed: error => {
+      caught = error;
+    },
+    followingClicked: () => clicks++
+  });
+  dispose = hydrate(() => <App />, container);
+  onHydrationEnd(() => ended++);
+  setReady(true);
+  await settle();
+  expect(button.isConnected).toBe(true);
+  expect(caught).toBeUndefined();
+  expect(ended).toBe(0);
+  rejectModule(failure);
+  await settle();
+  await settle();
+  expect(caught).toBe(failure);
+  expect(container.querySelector("p")!.textContent).toBe("module failed");
+  expect(entered).toBe(0);
+  // Errored retains the failed content's owner so reset can retry it.
+  expect(moduleCleaned).toBe(0);
+  expect(ended).toBe(1);
+  expect(container.querySelector("aside")).toBe(sibling);
+  sibling.click();
+  expect(clicks).toBe(1);
+  dispose();
+  dispose = undefined;
+  expect(moduleCleaned).toBe(1);
+});
+
+test("a claimed boundary uses its authored Loading fallback when explicitly re-armed", async () => {
+  applyChunk(container, artifact.module.shell);
+  const button = container.querySelector("button")!;
+  const sibling = container.querySelector("aside")!;
+  const [ready, setReady] = createSignal(false);
+  const [reloadKey, setReloadKey] = createSignal(0);
+  const initialModule = Promise.resolve();
+  const [moduleRequest, setModuleRequest] = createSignal(initialModule);
+  let resolveReload!: () => void;
+  const reload = new Promise<void>(resolve => {
+    resolveReload = resolve;
+  });
+  let clicks = 0;
+  let ended = 0;
+  const App = deferredModuleApp({
+    ready,
+    module: initialModule,
+    moduleRequest,
+    reloadKey,
+    clicked: () => clicks++
+  });
+  dispose = hydrate(() => <App />, container);
+  onHydrationEnd(() => ended++);
+  setReady(true);
+  await settle();
+  await settle();
+  expect(container.querySelector("button")).toBe(button);
+  expect(ended).toBe(1);
+
+  setModuleRequest(reload);
+  setReloadKey(1);
+  await settle();
+  expect(container.querySelector("p")!.textContent).toBe("module pending");
+  expect(container.querySelector("aside")).toBe(sibling);
+
+  resolveReload();
+  await settle();
+  await settle();
+  expect(container.querySelector("p")).toBeNull();
+  expect(container.querySelectorAll("button")).toHaveLength(1);
+  expect(container.querySelector("button")!.textContent).toBe("module content");
+  container.querySelector("button")!.click();
+  expect(clicks).toBe(1);
+  expect(ended).toBe(1);
+});
+
+test("an inner handled error cannot retire an independent pending sibling's claim", async () => {
+  applyChunk(container, artifact.handledModule.shell);
+  const button = container.querySelector("button")!;
+  const sibling = container.querySelector("aside")!;
+  const [ready, setReady] = createSignal(false);
+  let resolveModule!: () => void;
+  const module = new Promise<void>(resolve => {
+    resolveModule = resolve;
+  });
+  const failure = new Error("handled child failed");
+  let caught: unknown;
+  let entered = 0;
+  let ended = 0;
+  const App = deferredModuleApp({
+    ready,
+    module,
+    entered: () => entered++,
+    handledFailure: () => {
+      throw failure;
+    },
+    handledFailed: error => {
+      caught = error;
+    }
+  });
+  dispose = hydrate(() => <App />, container);
+  onHydrationEnd(() => ended++);
+  setReady(true);
+  await settle();
+  expect(caught).toBe(failure);
+  expect(entered).toBe(0);
+  expect(ended).toBe(0);
+  expect(button.isConnected).toBe(true);
+
+  resolveModule();
+  await settle();
+  await settle();
+  expect(entered).toBe(1);
+  expect(container.querySelector("button")).toBe(button);
+  expect(container.querySelector("aside")).toBe(sibling);
+  expect(container.textContent).toContain("inner failed");
+  expect(ended).toBe(1);
+});
+
+test("an outer error retires a hidden pending claim inside an inner Errored", async () => {
+  applyChunk(container, artifact.nestedModule.shell);
+  const button = container.querySelector("button")!;
+  const sibling = container.querySelector("aside")!;
+  const [ready, setReady] = createSignal(false);
+  const [fail, setFail] = createSignal(false);
+  // This module remains unresolved throughout the error fallback and teardown.
+  const module = new Promise<void>(() => {});
+  const failure = new Error("outer child failed");
+  let caught: unknown;
+  let entered = 0;
+  let ended = 0;
+  let clicks = 0;
+  const App = deferredModuleApp({
+    ready,
+    module,
+    entered: () => entered++,
+    followingClicked: () => clicks++,
+    outerFailure: () => {
+      if (fail()) throw failure;
+    },
+    failed: error => {
+      caught = error;
+    }
+  });
+  dispose = hydrate(() => <App />, container);
+  onHydrationEnd(() => ended++);
+  setReady(true);
+  await settle();
+  expect(button.isConnected).toBe(true);
+  expect(entered).toBe(0);
+  expect(ended).toBe(0);
+
+  setFail(true);
+  await settle();
+  await settle();
+  expect(caught).toBe(failure);
+  expect(container.querySelector("p")!.textContent).toBe("module failed");
+  expect(entered).toBe(0);
+  expect(ended).toBe(1);
+  expect(container.querySelector("aside")).toBe(sibling);
+  sibling.click();
+  expect(clicks).toBe(1);
 });
