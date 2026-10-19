@@ -1,5 +1,6 @@
 import {
   getOwner,
+  untrack,
   NotReadyError,
   createLoadingBoundary as coreLoadingBoundary,
   createErrorBoundary as coreErrorBoundary,
@@ -2937,4 +2938,56 @@ export function NoHydration(props: { children: SolidElement }): SolidElement {
  */
 export function Hydration(props: { id?: string; children: SolidElement }): SolidElement {
   return props.children as unknown as SolidElement;
+}
+
+/**
+ * Leaves server-rendered children inert until `when` becomes true, then claims
+ * them in their original hydration owner. Once claimed, later changes to
+ * `when` do not unmount the children. A client-only mount shows `fallback`
+ * until it is ready; the server always renders the children.
+ */
+export function DeferredHydration(props: {
+  when: boolean;
+  fallback?: SolidElement;
+  children: SolidElement;
+}): SolidElement {
+  let activated = false;
+  if (!sharedConfig.hydrating || noHydrationId()) {
+    // Latch readiness in its own memo. Its value stays true after activation,
+    // so a later false does not re-run the content's owner and remount it.
+    const ready = coreMemo(() => activated || (activated = props.when));
+    return coreMemo(() => (ready() ? props.children : props.fallback)) as unknown as SolidElement;
+  }
+  let resume: (() => void) | undefined;
+  let queued = false;
+  const content = coreMemo(() => {
+    if (activated) return props.children;
+    if (untrack(() => props.when)) {
+      activated = true;
+      return props.children;
+    }
+    const owner = getOwner()!;
+    const [, claim] = initBoundaryResume(owner, owner.id!);
+    resume = () => {
+      activated = true;
+      claim();
+    };
+    // `undefined`, as for a pending streamed boundary, retains the server DOM.
+    return undefined;
+  });
+  // This watcher has no server counterpart and must consume no hydration id.
+  coreEffect(
+    () => props.when,
+    ready => {
+      if (!ready || !resume || activated || queued) return;
+      queued = true;
+      // Resuming flushes the claim, so it must run outside an effect flush.
+      queueMicrotask(() => {
+        queued = false;
+        resume?.();
+      });
+    },
+    { transparent: true }
+  );
+  return content as unknown as SolidElement;
 }
