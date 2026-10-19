@@ -1,9 +1,11 @@
 /** @jsxImportSource @solidjs/web */
 import { expect, test } from "vitest";
+import { generateHydrationScript } from "@solidjs/web";
 import {
   bareDeferredModuleApp,
   deferredApp,
   deferredModuleApp,
+  eventReplayApp,
   sequentialDeferredModuleApp
 } from "../harness/deferred-hydration.jsx";
 import { recordStream, writeArtifact } from "./artifact-recorder.js";
@@ -66,5 +68,17 @@ test("DeferredHydration renders children even when both client gates are closed"
     nestedModule,
     sequentialModule,
     bareModule
+  });
+});
+
+test("records the public replay bootstrap with declared and ordinary deferred children", async () => {
+  const cases = [];
+  for (const events of ["dblclick", "", undefined]) {
+    const App = eventReplayApp({ ready: () => false, events });
+    cases.push(await recordStream(() => <App />));
+  }
+  writeArtifact("hydration-event-replay", {
+    bootstrap: generateHydrationScript({ eventNames: ["click", "dblclick"] }),
+    cases
   });
 });
