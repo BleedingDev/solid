@@ -159,7 +159,9 @@ try {
     "build",
     "types",
     "--filter=solid-js",
-    "--filter=@solidjs/web"
+    "--filter=@solidjs/web",
+    // Solid's cross-package field contract inspects universal's built tiers.
+    "--filter=@solidjs/universal"
   ]);
   // Web's normal test script records SSR before its hydration project consumes it.
   for (const name of packages) {
